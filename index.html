@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mes Notes Pro</title>
+    <link rel="manifest" href="data:application/manifest+json,{'name':'MesNotes','short_name':'Notes','start_url':'.','display':'standalone','background_color':'#F5F5DC','theme_color':'#8b4513'}">
+    
+    <style>
+        :root {
+            --bg-color: #F5F5DC;
+            --text-color: #2c2c2c;
+            --card-bg: #ffffff;
+            --accent-color: #8b4513;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #1a1a1a;
+                --text-color: #f5f5dc;
+                --card-bg: #2c2c2c;
+                --accent-color: #deb887;
+            }
+        }
+
+        * { font-family: Arial, Helvetica, sans-serif !important; box-sizing: border-box; }
+
+        body { background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; padding-bottom: 80px; }
+
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        
+        /* Barre de recherche */
+        #search-bar {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.2rem;
+            border-radius: 10px;
+            border: 2px solid var(--accent-color);
+            background: var(--card-bg);
+            color: var(--text-color);
+            margin-bottom: 20px;
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: var(--bg-color);
+            border: none;
+            padding: 12px 18px;
+            border-radius: 10px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            cursor: pointer;
+        }
+
+        .note-card {
+            background-color: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .note-info { flex-grow: 1; cursor: pointer; }
+        .note-info h2 { margin: 0 0 5px 0; font-size: 1.4rem; display: flex; align-items: center; }
+        
+        /* Gommettes */
+        .dot { height: 15px; width: 15px; border-radius: 50%; display: inline-block; margin-right: 10px; }
+        .dot-none { display: none; }
+        .dot-red { background-color: #ff4d4d; }
+        .dot-blue { background-color: #4da6ff; }
+        .dot-green { background-color: #4dff88; }
+
+        .pin-btn { background: none; color: var(--accent-color); font-size: 1.8rem; padding: 0 10px; }
+
+        /* Editeur */
+        #editor { display: none; }
+        .color-picker { display: flex; gap: 15px; margin: 15px 0; align-items: center; }
+        .color-opt { width: 35px; height: 35px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
+        .color-opt.active { border-color: var(--text-color); transform: scale(1.2); }
+
+        textarea#note-content {
+            width: 100%; min-height: 400px; padding: 10px 0; border: none;
+            background: transparent; color: var(--text-color); line-height: 1.5;
+        }
+
+        .footer-actions { margin-top: 40px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div id="home">
+        <header>
+            <h1>Mes Notes</h1>
+            <button onclick="createNewNote()">+ Nouvelle</button>
+        </header>
+        
+        <input type="text" id="search-bar" placeholder="Rechercher une note..." oninput="renderNotes()">
+        
+        <div id="notes-list"></div>
+
+        <div class="footer-actions">
+            <button onclick="exportNotes()" style="background-color: #555;">📥 Sauvegarder tout (Export)</button>
+        </div>
+    </div>
+
+    <div id="editor">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+            <button onclick="goHome()">⬅ Retour</button>
+            <div style="display: flex; gap: 5px;">
+                <button onclick="changeFontSize(1)">A+</button>
+                <button onclick="changeFontSize(-1)">A-</button>
+            </div>
+            <button onclick="deleteNote()" style="background-color: #a22; color: white;">Suppr.</button>
+        </div>
+
+        <input type="text" id="note-title" style="width:100%; font-size:1.8rem; font-weight:bold; border:none; background:transparent; color:var(--text-color); border-bottom:3px solid var(--accent-color); margin-bottom:10px;" placeholder="Titre">
+        
+        <div class="color-picker">
+            <span>Gomette :</span>
+            <div class="color-opt" style="background:#ccc" onclick="setNoteColor('none')" id="opt-none"></div>
+            <div class="color-opt dot-red" onclick="setNoteColor('red')" id="opt-red"></div>
+            <div class="color-opt dot-blue" onclick="setNoteColor('blue')" id="opt-blue"></div>
+            <div class="color-opt dot-green" onclick="setNoteColor('green')" id="opt-green"></div>
+        </div>
+
+        <textarea id="note-content" placeholder="Écrivez ici..."></textarea>
+    </div>
+
+    <script>
+        let notes = JSON.parse(localStorage.getItem('my-notes-v2')) || [];
+        let currentNoteId = null;
+        let currentFontSize = 1.4;
+
+        function renderNotes() {
+            const list = document.getElementById('notes-list');
+            const search = document.getElementById('search-bar').value.toLowerCase();
+            list.innerHTML = '';
+
+            // Tri : Épinglées d'abord, puis par date
+            let filteredNotes = notes.filter(n => 
+                n.title.toLowerCase().includes(search) || n.content.toLowerCase().includes(search)
+            );
+
+            filteredNotes.sort((a, b) => {
+                if (a.pinned === b.pinned) return b.updated - a.updated;
+                return a.pinned ? -1 : 1;
+            });
+
+            filteredNotes.forEach(note => {
+                const div = document.createElement('div');
+                div.className = 'note-card';
+                const date = new Date(note.updated).toLocaleDateString('fr-FR', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
+                
+                div.innerHTML = `
+                    <div class="note-info" onclick="openNote(${note.id})">
+                        <h2><span class="dot dot-${note.color || 'none'}"></span>${note.title || 'Sans titre'}</h2>
+                        <span>${date}</span>
+                    </div>
+                    <button class="pin-btn" onclick="togglePin(${note.id})">${note.pinned ? '★' : '☆'}</button>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function createNewNote() {
+            const newNote = { id: Date.now(), title: '', content: '', updated: Date.now(), pinned: false, color: 'none' };
+            notes.push(newNote);
+            openNote(newNote.id);
+        }
+
+        function openNote(id) {
+            currentNoteId = id;
+            const note = notes.find(n => n.id === id);
+            document.getElementById('note-title').value = note.title;
+            document.getElementById('note-content').value = note.content;
+            setNoteColor(note.color || 'none');
+            document.getElementById('home').style.display = 'none';
+            document.getElementById('editor').style.display = 'block';
+            window.scrollTo(0,0);
+        }
+
+        function togglePin(id) {
+            const note = notes.find(n => n.id === id);
+            note.pinned = !note.pinned;
+            saveData();
+            renderNotes();
+        }
+
+        function setNoteColor(color) {
+            const note = notes.find(n => n.id === currentNoteId);
+            note.color = color;
+            document.querySelectorAll('.color-opt').forEach(el => el.classList.remove('active'));
+            document.getElementById('opt-' + color).classList.add('active');
+            saveData();
+        }
+
+        function goHome() {
+            saveNote();
+            document.getElementById('editor').style.display = 'none';
+            document.getElementById('home').style.display = 'block';
+            renderNotes();
+        }
+
+        function saveNote() {
+            const note = notes.find(n => n.id === currentNoteId);
+            if (note) {
+                note.title = document.getElementById('note-title').value;
+                note.content = document.getElementById('note-content').value;
+                note.updated = Date.now();
+                saveData();
+            }
+        }
+
+        function saveData() { localStorage.setItem('my-notes-v2', JSON.stringify(notes)); }
+
+        function deleteNote() {
+            if (confirm("Supprimer cette note ?")) {
+                notes = notes.filter(n => n.id !== currentNoteId);
+                saveData();
+                goHome();
+            }
+        }
+
+        function changeFontSize(delta) {
+            currentFontSize += delta * 0.2;
+            document.getElementById('note-content').style.fontSize = currentFontSize + 'rem';
+        }
+
+        function exportNotes() {
+            let text = "MES NOTES - EXPORT\n\n";
+            notes.forEach(n => {
+                text += `=== ${n.title.toUpperCase()} ===\nModifiée le: ${new Date(n.updated).toLocaleString()}\n\n${n.content}\n\n`;
+            });
+            const blob = new Blob([text], { type: 'text/plain' });
+            const anchor = document.createElement('a');
+            anchor.download = "sauvegarde_notes.txt";
+            anchor.href = window.URL.createObjectURL(blob);
+            anchor.click();
+        }
+
+        document.getElementById('note-content').addEventListener('input', saveNote);
+        document.getElementById('note-title').addEventListener('input', saveNote);
+        renderNotes();
+    </script>
+</body>
+</html>
